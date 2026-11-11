@@ -12,6 +12,7 @@ The core ML problem is **separating driver skill from car performance**: drivers
 | Teammate qualifying-gap analysis | ✅ |
 | Race laps, weather and race control, 2018–2025 (TracingInsights) | ✅ |
 | Teammate race-pace model (dry races) | ✅ |
+| Race results 2018–2025 (Jolpica) | In progress |
 | Baseline finishing-position model | Planned |
 | Hierarchical driver + car model | Planned |
 | Monte Carlo race simulator | Planned |
@@ -46,6 +47,7 @@ f1sim/
   ingest.py     # qualifying download: resumable, one file per session
   ingest_tracing.py # race laps, weather, race control from TracingInsights (free)
   race_pace.py  # clean laps, wet races, per-race lap-time model, teammate gaps
+  ingest_results.py # race results (finishing order, grid, status, points) from Jolpica
   manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
 manual_data/
@@ -55,6 +57,7 @@ notebooks/
   01_teammate_quali_gaps.ipynb # analysis and charts
   03_ingest_race_tracinginsights.ipynb # download race laps, weather, race control
   04_teammate_race_pace.ipynb  # race-pace model, charts, quali vs race
+  05_ingest_race_results.ipynb # download race results, cross-check with lap data
 ```
 
 Data is stored outside the repo (on Google Drive) and is never committed.
@@ -67,6 +70,7 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 4. Open `notebooks/01_teammate_quali_gaps.ipynb`, run the setup cell, then the analysis cells. Use the form fields to change season, team and driver.
 5. For race data, run `notebooks/03_ingest_race_tracinginsights.ipynb` the same way. One run covers all seasons; there are no rate limits.
 6. Open `notebooks/04_teammate_race_pace.ipynb` for the race-pace analysis.
+7. Run `notebooks/05_ingest_race_results.ipynb` to download race results (one run).
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 
@@ -81,6 +85,7 @@ python -m f1sim.ingest --start 2018 --end 2025 --data-dir ./data_store
 ## Data sources
 
 - [FastF1](https://docs.fastf1.dev): F1 live timing data and the Jolpica-F1 API (successor to Ergast). Qualifying times come from Jolpica.
+- [Jolpica-F1](https://github.com/jolpica/jolpica-f1) API, directly: race results (finishing order, grid, status, points).
 - [TracingInsights](https://github.com/TracingInsights): race laps, weather and race control messages, from their public per-season repos (e.g. `TracingInsights/2025`), licensed [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0). The data is FastF1-derived. Every row stores the git commit it came from (`SourceCommit`).
 - `manual_data/quali_times.csv`: qualifying times copied from the official [formula1.com](https://www.formula1.com) results, for sessions where no API has times. Driver and team identity still comes from FastF1; rows are matched by car number, and ingestion fails loudly if the drivers don't match.
 
