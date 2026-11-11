@@ -8,8 +8,9 @@ import pandas as pd
 
 SEGMENTS = ["Q3", "Q2", "Q1"]
 
-# Gaps above this are usually a crash, a mistake or a technical problem rather
-# than pace. They are flagged (not deleted) and left out of season summaries.
+# Gaps above this are usually a crash, a mistake, a technical problem or
+# changing track conditions rather than pace. Both teammates in the race are
+# flagged (not deleted) and left out of season summaries.
 # This is a tunable assumption - check the flagged races before trusting it.
 DEFAULT_OUTLIER_PCT = 2.0
 
@@ -44,8 +45,14 @@ def teammate_gaps(quali: pd.DataFrame, outlier_pct: float = DEFAULT_OUTLIER_PCT)
         if segment is None:
             continue
 
-        for me, mate in ((a, b), (b, a)):
-            gap_pct = 100 * (me[segment] - mate[segment]) / mate[segment]
+        gap_a = 100 * (a[segment] - b[segment]) / b[segment]
+        gap_b = 100 * (b[segment] - a[segment]) / a[segment]
+        # Flag the pair as a whole: the two gaps differ slightly in size (each is
+        # relative to the other driver's lap), so flagging per driver could
+        # exclude a race for one teammate but not the other.
+        pair_outlier = max(abs(gap_a), abs(gap_b)) > outlier_pct
+
+        for me, mate, gap_pct in ((a, b, gap_a), (b, a, gap_b)):
             rows.append(
                 {
                     "Year": year,
@@ -58,7 +65,7 @@ def teammate_gaps(quali: pd.DataFrame, outlier_pct: float = DEFAULT_OUTLIER_PCT)
                     "Segment": segment,
                     "LapTime": me[segment],
                     "GapPct": gap_pct,
-                    "Outlier": abs(gap_pct) > outlier_pct,
+                    "Outlier": pair_outlier,
                 }
             )
     return pd.DataFrame(rows).sort_values(["Year", "Round", "Team", "Driver"]).reset_index(drop=True)
