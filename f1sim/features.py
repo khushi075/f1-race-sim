@@ -14,10 +14,28 @@ SEGMENTS = ["Q3", "Q2", "Q1"]
 DEFAULT_OUTLIER_PCT = 2.0
 
 
+def _with_team_key(quali: pd.DataFrame) -> pd.DataFrame:
+    """Add TeamKey (stable id) and Team (one display name per team per season).
+
+    Team names vary by data source (e.g. "Red Bull Racing" from F1 timing vs
+    "Red Bull" from Jolpica), so teams are grouped by Jolpica's TeamId instead
+    and shown under their most common name that season.
+    """
+    q = quali.copy()
+    q["TeamKey"] = q["TeamId"].replace("", pd.NA).fillna(q["TeamName"])
+    display = (
+        q.groupby(["Year", "TeamKey"])["TeamName"]
+        .agg(lambda s: s.value_counts().index[0])
+        .rename("Team")
+    )
+    return q.join(display, on=["Year", "TeamKey"])
+
+
 def teammate_gaps(quali: pd.DataFrame, outlier_pct: float = DEFAULT_OUTLIER_PCT) -> pd.DataFrame:
     """One row per driver per race: gap to teammate in % (negative = faster)."""
     rows = []
-    for (year, rnd, event, team), g in quali.groupby(["Year", "Round", "Event", "TeamName"]):
+    quali = _with_team_key(quali)
+    for (year, rnd, event, _, team), g in quali.groupby(["Year", "Round", "Event", "TeamKey", "Team"]):
         if len(g) != 2:  # e.g. a substitute driver mid-weekend
             continue
         a, b = g.iloc[0], g.iloc[1]
