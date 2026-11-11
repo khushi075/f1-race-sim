@@ -10,8 +10,8 @@ The core ML problem is **separating driver skill from car performance**: drivers
 |---|---|
 | Qualifying data ingestion, 2018–2025 (FastF1) | ✅ |
 | Teammate qualifying-gap analysis | ✅ |
-| Race laps, weather and race control, 2018–2025 (TracingInsights) | In progress |
-| Race-pace gaps (clean laps, same tyre compound) | Planned |
+| Race laps, weather and race control, 2018–2025 (TracingInsights) | ✅ |
+| Teammate race-pace model (dry races) | ✅ |
 | Baseline finishing-position model | Planned |
 | Hierarchical driver + car model | Planned |
 | Monte Carlo race simulator | Planned |
@@ -23,6 +23,20 @@ For each race, the two teammates are compared in the **last qualifying segment t
 
 **Limitation:** teammates' cars are not identical (setups, upgrade timing, reliability), so this is an approximation.
 
+## Feature 2: teammate race pace
+
+Race pace is compared with a small lap-time model fitted separately for each race:
+
+`lap_time ~ driver + compound + compound × tyre_age + lap_number`
+
+It adjusts each lap for tyre compound, tyre wear (each compound degrading at its own rate) and lap number (fuel burn-off and track grip). The teammate gap is the difference between the two drivers' estimated pace with those held equal, with a standard error from the model. A robust (Huber) regression is used by default, so laps lost in traffic count less.
+
+- **Clean laps:** only laps FastF1 marks as accurate (no pit in/out laps, no safety car, VSC or red-flag laps, consistent timing).
+- **Wet races:** excluded for now, defined as any intermediate/wet tyre use or rain recorded during a lap (adjustable).
+- **Minimum laps:** a driver needs at least 10 clean laps in a race to be compared.
+
+**Limitations:** the fuel and track-evolution effect is assumed linear and the same for every car; drivers in different traffic or running different strategies may still differ in ways the model doesn't capture.
+
 ## Project layout
 
 ```
@@ -31,6 +45,7 @@ f1sim/
   ingest.py     # qualifying download: resumable, one file per session
   ingest_race.py # race data via FastF1 (needs an F1 TV login since Oct 2026; unused)
   ingest_tracing.py # race laps, weather, race control from TracingInsights (free)
+  race_pace.py  # clean laps, wet races, per-race lap-time model, teammate gaps
   manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
 manual_data/
@@ -38,8 +53,8 @@ manual_data/
 notebooks/
   00_ingest_quali.ipynb        # download data
   01_teammate_quali_gaps.ipynb # analysis and charts
-  02_ingest_race_laps.ipynb    # race data via FastF1 (needs F1 TV login; unused)
   03_ingest_race_tracinginsights.ipynb # download race laps, weather, race control
+  04_teammate_race_pace.ipynb  # race-pace model, charts, quali vs race
 ```
 
 Data is stored outside the repo (on Google Drive) and is never committed.
@@ -51,6 +66,7 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 3. Run the download cell. FastF1 has hard API limits (200 calls/hour to Jolpica, 500/hour overall), so all of 2018–2025 takes several runs. When it stops at the limit, wait about an hour and rerun; finished sessions are skipped.
 4. Open `notebooks/01_teammate_quali_gaps.ipynb`, run the setup cell, then the analysis cells. Use the form fields to change season, team and driver.
 5. For race data, run `notebooks/03_ingest_race_tracinginsights.ipynb` the same way. One run covers all seasons; there are no rate limits.
+6. Open `notebooks/04_teammate_race_pace.ipynb` for the race-pace analysis.
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 
