@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# Data never goes in git (it lives on Google Drive)
+data_store/
+*.parquet
+*.sqlite
+
+# macOS
+.DS_Store
