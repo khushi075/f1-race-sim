@@ -28,7 +28,10 @@ For each race, the two teammates are compared in the **last qualifying segment t
 f1sim/
   paths.py      # where data lives (Google Drive in Colab)
   ingest.py     # FastF1 download: resumable, one file per session
+  manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
+manual_data/
+  quali_times.csv  # hand-entered qualifying times (see Data sources)
 notebooks/
   00_ingest_quali.ipynb        # download data
   01_teammate_quali_gaps.ipynb # analysis and charts
@@ -56,3 +59,14 @@ python -m f1sim.ingest --start 2018 --end 2025 --data-dir ./data_store
 ## Data sources
 
 - [FastF1](https://docs.fastf1.dev): F1 live timing data and the Jolpica-F1 API (successor to Ergast)
+- `manual_data/quali_times.csv`: qualifying times copied from the official [formula1.com](https://www.formula1.com) results, for sessions where no API has times. Driver and team identity still comes from FastF1; rows are matched by car number, and ingestion fails loudly if the drivers don't match.
+
+Each saved session records where its times came from in `QTimeSource`: `results_api`, `computed_from_laps` or `manual`.
+
+### Known data issues
+
+| Session | Issue | Handling |
+|---|---|---|
+| 2025 R06 Miami | F1 live timing has no data; Jolpica has the order but no times | Times entered manually from formula1.com |
+
+Team names differ between sources (e.g. "Red Bull Racing" vs "Red Bull"), so the analysis groups teams by Jolpica's `TeamId`.
