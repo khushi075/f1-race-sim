@@ -4,18 +4,6 @@ Simulate and predict Formula 1 races with current and past drivers, using custom
 
 The core ML problem is **separating driver skill from car performance**: drivers only race a few cars, and good drivers tend to end up in good cars. Teammate comparisons are the main evidence, since teammates share (nearly) the same car.
 
-## Status
-
-| Feature | Status |
-|---|---|
-| Qualifying data ingestion, 2018–2025 (FastF1) | ✅ |
-| Teammate qualifying-gap analysis | ✅ |
-| Race-pace gaps (clean laps, same tyre compound) | Planned |
-| Baseline finishing-position model | Planned |
-| Hierarchical driver + car model | Planned |
-| Monte Carlo race simulator | Planned |
-| Teammate-pairing search | Planned |
-
 ## Feature 1: teammate qualifying gaps
 
 For each race, the two teammates are compared in the **last qualifying segment they both set a time in** (Q3 if both reached it, else Q2, else Q1). The gap is a % of the teammate's lap time, where negative means faster. Gaps over 2% (adjustable) are flagged as likely crashes or technical issues and excluded from season summaries.
