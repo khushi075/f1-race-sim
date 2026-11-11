@@ -4,6 +4,19 @@ Simulate and predict Formula 1 races with current and past drivers, using custom
 
 The core ML problem is **separating driver skill from car performance**: drivers only race a few cars, and good drivers tend to end up in good cars. Teammate comparisons are the main evidence, since teammates share (nearly) the same car.
 
+## Status
+
+| Feature | Status |
+|---|---|
+| Qualifying data ingestion, 2018–2025 (FastF1) | ✅ |
+| Teammate qualifying-gap analysis | ✅ |
+| Race lap, weather and results ingestion, 2018–2025 (raw) | In progress |
+| Race-pace gaps (clean laps, same tyre compound) | Planned |
+| Baseline finishing-position model | Planned |
+| Hierarchical driver + car model | Planned |
+| Monte Carlo race simulator | Planned |
+| Teammate-pairing search | Planned |
+
 ## Feature 1: teammate qualifying gaps
 
 For each race, the two teammates are compared in the **last qualifying segment they both set a time in** (Q3 if both reached it, else Q2, else Q1). The gap is a % of the teammate's lap time, where negative means faster. Gaps over 2% (adjustable) are flagged as likely crashes or technical issues and excluded from season summaries.
@@ -15,7 +28,8 @@ For each race, the two teammates are compared in the **last qualifying segment t
 ```
 f1sim/
   paths.py      # where data lives (Google Drive in Colab)
-  ingest.py     # FastF1 download: resumable, one file per session
+  ingest.py     # qualifying download: resumable, one file per session
+  ingest_race.py # race laps, weather and results download (raw, resumable)
   manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
 manual_data/
@@ -23,6 +37,7 @@ manual_data/
 notebooks/
   00_ingest_quali.ipynb        # download data
   01_teammate_quali_gaps.ipynb # analysis and charts
+  02_ingest_race_laps.ipynb    # download race laps, weather, results
 ```
 
 Data is stored outside the repo (on Google Drive) and is never committed.
@@ -33,6 +48,7 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 2. In the setup cell, set `REPO_URL` to this repo and run it. Approve the Google Drive mount.
 3. Run the download cell. FastF1 has hard API limits (200 calls/hour to Jolpica, 500/hour overall), so all of 2018–2025 takes several runs. When it stops at the limit, wait about an hour and rerun; finished sessions are skipped.
 4. Open `notebooks/01_teammate_quali_gaps.ipynb`, run the setup cell, then the analysis cells. Use the form fields to change season, team and driver.
+5. For race data, run `notebooks/02_ingest_race_laps.ipynb` the same way: rerun the download cell each hour until nothing is left (about four hours of reruns for 2018–2025).
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 
