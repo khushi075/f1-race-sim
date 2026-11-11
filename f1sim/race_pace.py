@@ -62,6 +62,14 @@ def wet_races(laps: pd.DataFrame, rule: str = "tyres") -> pd.DataFrame:
     return wet[is_wet].reset_index(drop=True)
 
 
+def dry_races(laps: pd.DataFrame, wet_rule: str = "tyres") -> pd.DataFrame:
+    """All races not counted as wet: the races the model should cover."""
+    races = laps[["Year", "Round", "Event"]].drop_duplicates()
+    wet = wet_races(laps, wet_rule)[["Year", "Round"]].assign(_wet=True)
+    races = races.merge(wet, on=["Year", "Round"], how="left")
+    return races[races["_wet"].isna()].drop(columns="_wet").reset_index(drop=True)
+
+
 def clean_dry_laps(laps: pd.DataFrame, exclude_wet: bool = True,
                    wet_rule: str = "tyres") -> pd.DataFrame:
     """Accurate laps on known dry compounds, optionally without wet races.
@@ -178,13 +186,22 @@ def race_teammate_gaps(race: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
 
 
 def teammate_race_gaps(clean: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
-                       robust: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+                       robust: bool = True,
+                       expected_races: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Gaps for every race.
 
     Returns (gaps, skipped): skipped lists whole races (Driver empty) and
     individual drivers/laps the model had to leave out, each with the reason.
+    Pass expected_races (e.g. dry_races(laps)) so races with no clean laps at
+    all, such as 2021 Belgium (run entirely behind the safety car), are listed
+    too instead of disappearing silently.
     """
     out, skipped = [], []
+    if expected_races is not None:
+        present = set(map(tuple, clean[["Year", "Round"]].drop_duplicates().values))
+        for year, rnd, event in expected_races[["Year", "Round", "Event"]].itertuples(index=False):
+            if (year, rnd) not in present:
+                skipped.append((year, rnd, event, None, "no clean dry laps (e.g. whole race behind the safety car)"))
     for (year, rnd, event), race in clean.groupby(["Year", "Round", "Event"]):
         try:
             gaps, notes = race_teammate_gaps(race, min_laps, robust)
@@ -197,7 +214,8 @@ def teammate_race_gaps(clean: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
         else:
             out.append(gaps)
     gaps = pd.concat(out, ignore_index=True) if out else pd.DataFrame()
-    skipped = pd.DataFrame(skipped, columns=["Year", "Round", "Event", "Driver", "Reason"])
+    skipped = (pd.DataFrame(skipped, columns=["Year", "Round", "Event", "Driver", "Reason"])
+               .sort_values(["Year", "Round"]).reset_index(drop=True))
     return gaps.sort_values(["Year", "Round", "Team", "Driver"]).reset_index(drop=True), skipped
 
 
