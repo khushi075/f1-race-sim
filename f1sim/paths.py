@@ -33,8 +33,13 @@ class Paths:
         """Per race: <year>_<round>_{laps,weather,results}.parquet."""
         return self.root / "raw" / "race"
 
+    @property
+    def race_ti_dir(self) -> Path:
+        """Race data from TracingInsights: <year>_<round>_{laps,weather,rcm}.parquet."""
+        return self.root / "raw" / "race_tracinginsights"
+
     def ensure(self) -> "Paths":
-        for d in (self.cache_dir, self.quali_dir, self.race_dir):
+        for d in (self.cache_dir, self.quali_dir, self.race_dir, self.race_ti_dir):
             d.mkdir(parents=True, exist_ok=True)
         return self
 
