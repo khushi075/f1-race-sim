@@ -1,8 +1,8 @@
 """Race laps, weather and race control messages from TracingInsights (free).
 
 Why this exists: since October 2026 F1's timing APIs need an F1 TV login, so
-FastF1 can no longer download lap data without a subscription (see
-ingest_race.py). TracingInsights published the same FastF1-derived data on
+FastF1 can no longer download lap data without a subscription.
+TracingInsights published the same FastF1-derived data on
 GitHub before that, one public repo per season, licensed Apache-2.0:
     https://github.com/TracingInsights/<year>
 
