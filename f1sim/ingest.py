@@ -6,6 +6,8 @@ Resumable by design:
 - FastF1 enforces hard API limits (Jolpica: 200 calls/hour, all APIs:
   500 calls/hour). When a limit is hit, the run stops cleanly and you rerun
   it after about an hour to continue where it left off.
+- if no API has times for a session, times from manual_data/quali_times.csv
+  are used (see f1sim/manual.py)
 
 CLI:
     python -m f1sim.ingest --start 2018 --end 2025 --data-dir /path/to/data
@@ -17,6 +19,7 @@ import fastf1
 import pandas as pd
 from fastf1.exceptions import RateLimitExceededError
 
+from f1sim.manual import apply_manual_times
 from f1sim.paths import Paths, get_paths
 
 Q_COLS = ["Q1", "Q2", "Q3"]
@@ -61,22 +64,41 @@ def session_file(paths: Paths, year: int, rnd: int):
     return paths.quali_dir / f"{year}_{rnd:02d}.parquet"
 
 
-def _load_quali_results(year: int, rnd: int) -> tuple[pd.DataFrame, str]:
-    """Return (results, source).
+def _has_q_times(res: pd.DataFrame | None) -> bool:
+    return res is not None and not res.empty and res[Q_COLS].notna().any().any()
 
-    First try the cheap path: results only (Q times come from the Jolpica API).
-    If Q times are missing, reload with lap data + race control messages so
-    FastF1 can compute Q1/Q2/Q3 from the laps itself (deleted laps excluded).
+
+def _to_seconds(res: pd.DataFrame) -> pd.DataFrame:
+    res = res.copy()
+    for col in Q_COLS:
+        res[col] = pd.to_timedelta(res[col]).dt.total_seconds()
+    return res
+
+
+def _load_quali_results(year: int, rnd: int) -> tuple[pd.DataFrame | None, str]:
+    """Return (results with Q1-Q3 in seconds, source), trying in order:
+
+    1. results_api: results only; Q times come from the Jolpica API (cheap).
+    2. manual: times from manual_data/quali_times.csv, for sessions where no
+       API has times (driver/team identity still comes from FastF1).
+    3. computed_from_laps: reload with laps + race control messages so FastF1
+       computes Q1-Q3 from the lap data itself (deleted laps excluded).
     """
     session = fastf1.get_session(year, rnd, "Q")
     session.load(laps=False, telemetry=False, weather=False, messages=False)
     res = session.results
-    if res is not None and not res.empty and res[Q_COLS].notna().any().any():
-        return res, "results_api"
+    if _has_q_times(res):
+        return _to_seconds(res), "results_api"
+
+    if res is not None and not res.empty:
+        manual = apply_manual_times(res, year, rnd)
+        if manual is not None:
+            return manual, "manual"
 
     session = fastf1.get_session(year, rnd, "Q")
     session.load(laps=True, telemetry=False, weather=False, messages=True)
-    return session.results, "computed_from_laps"
+    res = session.results
+    return (_to_seconds(res) if _has_q_times(res) else res), "computed_from_laps"
 
 
 def ingest_season(year: int, paths: Paths, summary: IngestSummary) -> None:
@@ -107,9 +129,7 @@ def ingest_season(year: int, paths: Paths, summary: IngestSummary) -> None:
             summary.failed.append((label, "no qualifying times available"))
             continue
 
-        df = res[RESULT_COLS].copy().reset_index(drop=True)
-        for col in Q_COLS:  # store lap times as seconds (float)
-            df[col] = pd.to_timedelta(df[col]).dt.total_seconds()
+        df = res[RESULT_COLS].copy().reset_index(drop=True)  # Q1-Q3 already in seconds
         df.insert(0, "Year", year)
         df.insert(1, "Round", rnd)
         df.insert(2, "Event", event["EventName"])
@@ -121,7 +141,7 @@ def ingest_season(year: int, paths: Paths, summary: IngestSummary) -> None:
 
 def ingest_seasons(years, paths: Paths | None = None) -> IngestSummary:
     paths = paths or get_paths()
-    fastf1.Cache.enable_cache(str(paths.cache_dir))
+    fastf1.Cache.configure(cache_dir=str(paths.cache_dir))
     summary = IngestSummary()
     try:
         for year in years:

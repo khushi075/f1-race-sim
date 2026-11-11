@@ -7,7 +7,11 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data_store"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATA_DIR = REPO_ROOT / "data_store"
+
+# Small hand-entered data lives in the repo (reviewable in git), not on Drive.
+MANUAL_QUALI_CSV = REPO_ROOT / "manual_data" / "quali_times.csv"
 
 
 @dataclass(frozen=True)
