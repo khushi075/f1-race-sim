@@ -10,7 +10,7 @@ The core ML problem is **separating driver skill from car performance**: drivers
 |---|---|
 | Qualifying data ingestion, 2018–2025 (FastF1) | ✅ |
 | Teammate qualifying-gap analysis | ✅ |
-| Race lap, weather and results ingestion, 2018–2025 (raw) | In progress |
+| Race laps, weather and race control, 2018–2025 (TracingInsights) | In progress |
 | Race-pace gaps (clean laps, same tyre compound) | Planned |
 | Baseline finishing-position model | Planned |
 | Hierarchical driver + car model | Planned |
@@ -29,7 +29,8 @@ For each race, the two teammates are compared in the **last qualifying segment t
 f1sim/
   paths.py      # where data lives (Google Drive in Colab)
   ingest.py     # qualifying download: resumable, one file per session
-  ingest_race.py # race laps, weather and results download (raw, resumable)
+  ingest_race.py # race data via FastF1 (needs an F1 TV login since Oct 2026; unused)
+  ingest_tracing.py # race laps, weather, race control from TracingInsights (free)
   manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
 manual_data/
@@ -37,7 +38,8 @@ manual_data/
 notebooks/
   00_ingest_quali.ipynb        # download data
   01_teammate_quali_gaps.ipynb # analysis and charts
-  02_ingest_race_laps.ipynb    # download race laps, weather, results
+  02_ingest_race_laps.ipynb    # race data via FastF1 (needs F1 TV login; unused)
+  03_ingest_race_tracinginsights.ipynb # download race laps, weather, race control
 ```
 
 Data is stored outside the repo (on Google Drive) and is never committed.
@@ -48,7 +50,7 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 2. In the setup cell, set `REPO_URL` to this repo and run it. Approve the Google Drive mount.
 3. Run the download cell. FastF1 has hard API limits (200 calls/hour to Jolpica, 500/hour overall), so all of 2018–2025 takes several runs. When it stops at the limit, wait about an hour and rerun; finished sessions are skipped.
 4. Open `notebooks/01_teammate_quali_gaps.ipynb`, run the setup cell, then the analysis cells. Use the form fields to change season, team and driver.
-5. For race data, run `notebooks/02_ingest_race_laps.ipynb` the same way: rerun the download cell each hour until nothing is left (about four hours of reruns for 2018–2025).
+5. For race data, run `notebooks/03_ingest_race_tracinginsights.ipynb` the same way. One run covers all seasons; there are no rate limits.
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 
@@ -62,7 +64,8 @@ python -m f1sim.ingest --start 2018 --end 2025 --data-dir ./data_store
 
 ## Data sources
 
-- [FastF1](https://docs.fastf1.dev): F1 live timing data and the Jolpica-F1 API (successor to Ergast)
+- [FastF1](https://docs.fastf1.dev): F1 live timing data and the Jolpica-F1 API (successor to Ergast). Qualifying times come from Jolpica.
+- [TracingInsights](https://github.com/TracingInsights): race laps, weather and race control messages, from their public per-season repos (e.g. `TracingInsights/2025`), licensed [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0). The data is FastF1-derived. Every row stores the git commit it came from (`SourceCommit`).
 - `manual_data/quali_times.csv`: qualifying times copied from the official [formula1.com](https://www.formula1.com) results, for sessions where no API has times. Driver and team identity still comes from FastF1; rows are matched by car number, and ingestion fails loudly if the drivers don't match.
 
 Each saved session records where its times came from in `QTimeSource`: `results_api`, `computed_from_laps` or `manual`.
@@ -72,5 +75,7 @@ Each saved session records where its times came from in `QTimeSource`: `results_
 | Session | Issue | Handling |
 |---|---|---|
 | 2025 R06 Miami | F1 live timing has no data; Jolpica has the order but no times | Times entered manually from formula1.com |
+| All races | Since October 2026, F1's timing APIs require an F1 TV login, so FastF1 can't download lap data without a subscription | Race data from TracingInsights instead |
+| 2018 R01 Australia | TracingInsights has laps but no weather or race control file | Laps used; no weather/race control for this race |
 
 Team names differ between sources (e.g. "Red Bull Racing" vs "Red Bull"), so the analysis groups teams by Jolpica's `TeamId`.
