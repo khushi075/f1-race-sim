@@ -32,8 +32,9 @@ Race pace is compared with a small lap-time model fitted separately for each rac
 It adjusts each lap for tyre compound, tyre wear (each compound degrading at its own rate) and lap number (fuel burn-off and track grip). The teammate gap is the difference between the two drivers' estimated pace with those held equal, with a standard error from the model. A robust (Huber) regression is used by default, so laps lost in traffic count less.
 
 - **Clean laps:** only laps FastF1 marks as accurate (no pit in/out laps, no safety car, VSC or red-flag laps, consistent timing).
-- **Wet races:** excluded for now, defined as any intermediate/wet tyre use or rain recorded during a lap (adjustable).
+- **Wet races:** excluded for now, defined as any race where intermediate or wet tyres were used (adjustable to also exclude races with any rain recorded).
 - **Minimum laps:** a driver needs at least 10 clean laps in a race to be compared.
+- **Identifiability:** laps on a compound only one driver used in a race are dropped (that driver's pace and the tyre's can't be separated), and a race is skipped if the model still can't separate every effect. Both are listed in the notebook, with reasons.
 
 **Limitations:** the fuel and track-evolution effect is assumed linear and the same for every car; drivers in different traffic or running different strategies may still differ in ways the model doesn't capture.
 
@@ -43,7 +44,6 @@ It adjusts each lap for tyre compound, tyre wear (each compound degrading at its
 f1sim/
   paths.py      # where data lives (Google Drive in Colab)
   ingest.py     # qualifying download: resumable, one file per session
-  ingest_race.py # race data via FastF1 (needs an F1 TV login since Oct 2026; unused)
   ingest_tracing.py # race laps, weather, race control from TracingInsights (free)
   race_pace.py  # clean laps, wet races, per-race lap-time model, teammate gaps
   manual.py     # loads hand-entered times for sessions no API covers

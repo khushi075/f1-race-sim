@@ -6,8 +6,9 @@ add up to the lap time, and track status green or yellow only (so safety car,
 VSC and red-flag laps are out).
 
 Wet races are excluded for now. Two definitions (see wet_races):
-"tyres_or_rain" (default: intermediate/wet tyres used, or rain recorded during
-a lap) or "tyres" (intermediate/wet tyres used).
+"tyres" (default: intermediate/wet tyres used) or "tyres_or_rain" (also any
+rain recorded during a lap, which catches races that stayed dry enough for
+slicks).
 
 Model, fitted separately for each race on its clean dry laps:
 
@@ -28,23 +29,25 @@ the model's covariance (so close gaps can be told apart from noise).
 """
 import numpy as np
 import pandas as pd
+import patsy
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 
 WET_COMPOUNDS = {"INTERMEDIATE", "WET"}
 NOT_A_COMPOUND = {"UNKNOWN", "TEST_UNKNOWN"}
 DEFAULT_MIN_LAPS = 10  # a driver needs at least this many clean laps in a race
+FORMULA = "time ~ C(drv) + C(compound) + C(compound):life + lap"
 
 
-WET_RULES = ("tyres_or_rain", "tyres")
+WET_RULES = ("tyres", "tyres_or_rain")
 
 
-def wet_races(laps: pd.DataFrame, rule: str = "tyres_or_rain") -> pd.DataFrame:
+def wet_races(laps: pd.DataFrame, rule: str = "tyres") -> pd.DataFrame:
     """Races counted as wet, with the evidence.
 
-    rule="tyres_or_rain": any intermediate/wet tyre lap OR rain recorded during
-                          any lap (strict; also catches light drizzle)
-    rule="tyres":         any intermediate/wet tyre lap only
+    rule="tyres":         any intermediate/wet tyre lap (default)
+    rule="tyres_or_rain": also any rain recorded during a lap (stricter; catches
+                          light drizzle even when everyone stayed on slicks)
     """
     if rule not in WET_RULES:
         raise ValueError(f"rule must be one of {WET_RULES}")
@@ -60,7 +63,7 @@ def wet_races(laps: pd.DataFrame, rule: str = "tyres_or_rain") -> pd.DataFrame:
 
 
 def clean_dry_laps(laps: pd.DataFrame, exclude_wet: bool = True,
-                   wet_rule: str = "tyres_or_rain") -> pd.DataFrame:
+                   wet_rule: str = "tyres") -> pd.DataFrame:
     """Accurate laps on known dry compounds, optionally without wet races.
 
     Laps without a compound or tyre age are dropped too: the model needs both.
@@ -81,10 +84,9 @@ def clean_dry_laps(laps: pd.DataFrame, exclude_wet: bool = True,
 
 
 def _fit(race: pd.DataFrame, robust: bool):
-    formula = "time ~ C(drv) + C(compound) + C(compound):life + lap"
     if robust:
-        return smf.rlm(formula, race, M=sm.robust.norms.HuberT()).fit()
-    return smf.ols(formula, race).fit()
+        return smf.rlm(FORMULA, race, M=sm.robust.norms.HuberT()).fit()
+    return smf.ols(FORMULA, race).fit()
 
 
 def _driver_term(params: pd.Index, drv: str) -> str | None:
@@ -92,16 +94,59 @@ def _driver_term(params: pd.Index, drv: str) -> str | None:
     return name if name in params else None  # None = the baseline driver (effect 0)
 
 
-def race_teammate_gaps(race: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
-                       robust: bool = True) -> pd.DataFrame:
-    """Teammate gaps for one race's clean dry laps (one row per driver)."""
-    counts = race["drv"].value_counts()
-    race = race[race["drv"].isin(counts[counts >= min_laps].index)].copy()
-    if race["drv"].nunique() < 2:
-        return pd.DataFrame()
+class NotIdentifiable(Exception):
+    """The race's data can't separate every driver's pace from tyre effects."""
+
+
+def _prepare(race: pd.DataFrame, min_laps: int) -> tuple[pd.DataFrame, list[tuple[str, str]]]:
+    """Apply the per-race data rules. Returns (laps to fit, [(driver, note)])."""
+    notes = []
+    race = race.copy()
     race["drv"] = race["drv"].astype(str)
     race["compound"] = race["compound"].astype(str)
 
+    counts = race["drv"].value_counts()
+    race = race[race["drv"].isin(counts[counts >= min_laps].index)]
+
+    # A compound used by only one driver can't be told apart from that
+    # driver's own pace (e.g. 2018 Monza: Magnussen alone on mediums), so
+    # those laps are dropped.
+    users = race.groupby("compound")["drv"].nunique()
+    for comp in users[users < 2].index:
+        solo = race[race["compound"] == comp]
+        notes.append((solo["drv"].iloc[0],
+                      f"only driver on {comp}: {len(solo)} laps dropped"))
+        race = race[race["compound"] != comp]
+
+    counts = race["drv"].value_counts()
+    for drv in counts[counts < min_laps].index:
+        if any(d == drv for d, _ in notes):
+            notes.append((drv, f"under {min_laps} clean laps after that; driver excluded"))
+    race = race[race["drv"].isin(counts[counts >= min_laps].index)]
+    return race, notes
+
+
+def _check_identifiable(race: pd.DataFrame) -> None:
+    X = patsy.dmatrix(FORMULA.split("~", 1)[1], race, return_type="dataframe")
+    rank = np.linalg.matrix_rank(X.values)
+    if rank < X.shape[1]:
+        raise NotIdentifiable(
+            f"model can't separate all effects (rank {rank} < {X.shape[1]} terms)")
+
+
+def race_teammate_gaps(race: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
+                       robust: bool = True) -> tuple[pd.DataFrame, list[tuple[str, str]]]:
+    """Teammate gaps for one race's clean dry laps.
+
+    Returns (one row per driver, [(driver, note)] for drivers or laps dropped).
+    Raises NotIdentifiable if the data can't separate driver and tyre effects.
+    """
+    race, notes = _prepare(race, min_laps)
+    if race["drv"].nunique() < 2:
+        return pd.DataFrame(), notes
+    _check_identifiable(race)
+
+    counts = race["drv"].value_counts()
     res = _fit(race, robust)
     params, cov = res.params, res.cov_params()
     ref_lap = race["time"].median()
@@ -129,25 +174,30 @@ def race_teammate_gaps(race: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
                 "GapSEPct": 100 * se / ref_lap,
                 "Laps": int(counts[me]), "TeammateLaps": int(counts[mate]),
             })
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), notes
 
 
 def teammate_race_gaps(clean: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
                        robust: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Gaps for every race. Returns (gaps, skipped races with the reason)."""
+    """Gaps for every race.
+
+    Returns (gaps, skipped): skipped lists whole races (Driver empty) and
+    individual drivers/laps the model had to leave out, each with the reason.
+    """
     out, skipped = [], []
     for (year, rnd, event), race in clean.groupby(["Year", "Round", "Event"]):
         try:
-            gaps = race_teammate_gaps(race, min_laps, robust)
+            gaps, notes = race_teammate_gaps(race, min_laps, robust)
         except Exception as exc:
-            skipped.append((year, rnd, event, f"{type(exc).__name__}: {exc}"))
+            skipped.append((year, rnd, event, None, f"{type(exc).__name__}: {exc}"))
             continue
+        skipped.extend((year, rnd, event, drv, note) for drv, note in notes)
         if gaps.empty:
-            skipped.append((year, rnd, event, "no teammate pair with enough clean laps"))
+            skipped.append((year, rnd, event, None, "no teammate pair with enough clean laps"))
         else:
             out.append(gaps)
     gaps = pd.concat(out, ignore_index=True) if out else pd.DataFrame()
-    skipped = pd.DataFrame(skipped, columns=["Year", "Round", "Event", "Reason"])
+    skipped = pd.DataFrame(skipped, columns=["Year", "Round", "Event", "Driver", "Reason"])
     return gaps.sort_values(["Year", "Round", "Team", "Driver"]).reset_index(drop=True), skipped
 
 
