@@ -12,8 +12,8 @@ The core ML problem is **separating driver skill from car performance**: drivers
 | Teammate qualifying-gap analysis | ✅ |
 | Race laps, weather and race control, 2018–2025 (TracingInsights) | ✅ |
 | Teammate race-pace model (dry races) | ✅ |
-| Race results 2018–2025 (Jolpica) | In progress |
-| Baseline finishing-position model | Planned |
+| Race results 2018–2025 (Jolpica) | ✅ |
+| Baseline model: DNF chance + finishing order | ✅ |
 | Hierarchical driver + car model | Planned |
 | Monte Carlo race simulator | Planned |
 | Teammate-pairing search | Planned |
@@ -39,6 +39,17 @@ It adjusts each lap for tyre compound, tyre wear (each compound degrading at its
 
 **Limitations:** the fuel and track-evolution effect is assumed linear and the same for every car; drivers in different traffic or running different strategies may still differ in ways the model doesn't capture.
 
+## Feature 3: baseline race model
+
+Two parts, matching how the race simulator will work:
+
+1. **DNF model:** chance a driver doesn't take the chequered flag (retired, disqualified, didn't start; lapped finishers count as finishers). Benchmark: the training-set DNF rate.
+2. **Position model:** finishing order among finishers. Benchmark: finish in grid order.
+
+Each is fitted as a linear model and a gradient-boosted tree model, trained on 2018–2024 and tested on 2025. Inputs use only information available before each race: grid, this weekend's qualifying gap to teammate, recent finishing form for driver and team, recent race-pace gap to teammate, recent DNF rates, and the circuit's history (how much the order usually changes, and its DNF rate). All models are scored on the same drivers.
+
+**Limitations:** team form carries over between seasons even when the car changes a lot, and restarts when a team rebrands.
+
 ## Project layout
 
 ```
@@ -48,6 +59,7 @@ f1sim/
   ingest_tracing.py # race laps, weather, race control from TracingInsights (free)
   race_pace.py  # clean laps, wet races, per-race lap-time model, teammate gaps
   ingest_results.py # race results (finishing order, grid, status, points) from Jolpica
+  baseline.py   # pre-race features, DNF + position models, evaluation
   manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
 manual_data/
@@ -58,6 +70,7 @@ notebooks/
   03_ingest_race_tracinginsights.ipynb # download race laps, weather, race control
   04_teammate_race_pace.ipynb  # race-pace model, charts, quali vs race
   05_ingest_race_results.ipynb # download race results, cross-check with lap data
+  06_baseline_model.ipynb      # baseline DNF + position models vs benchmarks
 ```
 
 Data is stored outside the repo (on Google Drive) and is never committed.
@@ -71,6 +84,7 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 5. For race data, run `notebooks/03_ingest_race_tracinginsights.ipynb` the same way. One run covers all seasons; there are no rate limits.
 6. Open `notebooks/04_teammate_race_pace.ipynb` for the race-pace analysis.
 7. Run `notebooks/05_ingest_race_results.ipynb` to download race results (one run).
+8. Open `notebooks/06_baseline_model.ipynb` for the baseline model.
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 
