@@ -13,6 +13,7 @@ CLI:
     python -m f1sim.ingest --start 2018 --end 2025 --data-dir /path/to/data
 """
 import argparse
+import logging
 from dataclasses import dataclass, field
 
 import fastf1
@@ -41,6 +42,7 @@ class IngestSummary:
     already_on_disk: int = 0
     skipped_future: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)
+    warnings: list[tuple[str, str]] = field(default_factory=list)
     stopped_on_rate_limit: bool = False
 
     def report(self) -> str:
@@ -52,12 +54,27 @@ class IngestSummary:
         ]
         for label, err in self.failed:
             lines.append(f"  - {label}: {err}")
+        if self.warnings:
+            lines.append(f"Saved with warnings: {len(self.warnings)}")
+            for label, msg in self.warnings:
+                lines.append(f"  - {label}: {msg}")
         if self.stopped_on_rate_limit:
             lines.append(
                 "STOPPED: API rate limit reached. Wait ~60 minutes, then rerun - "
                 "finished sessions are kept and skipped."
             )
         return "\n".join(lines)
+
+
+def quiet_fastf1_logs(quiet: bool = True) -> None:
+    """Hide FastF1's INFO/DEBUG messages (warnings and errors still show).
+
+    fastf1.set_log_level only affects FastF1's own console handler; Colab's
+    root logger still prints everything FastF1 propagates to it. Setting the
+    level on the 'fastf1' logger itself stops both.
+    """
+    fastf1.set_log_level("WARNING" if quiet else "INFO")
+    logging.getLogger("fastf1").setLevel(logging.WARNING if quiet else logging.NOTSET)
 
 
 def session_file(paths: Paths, year: int, rnd: int):

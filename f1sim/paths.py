@@ -28,8 +28,13 @@ class Paths:
         """One parquet file per qualifying session."""
         return self.root / "raw" / "quali"
 
+    @property
+    def race_dir(self) -> Path:
+        """Per race: <year>_<round>_{laps,weather,results}.parquet."""
+        return self.root / "raw" / "race"
+
     def ensure(self) -> "Paths":
-        for d in (self.cache_dir, self.quali_dir):
+        for d in (self.cache_dir, self.quali_dir, self.race_dir):
             d.mkdir(parents=True, exist_ok=True)
         return self
 
