@@ -14,6 +14,8 @@ driver per race. Values are kept as Jolpica gives them, notably:
                         ("Engine", "Collision", ...)
     TimeMillis          winner's race time / finishers' total time in ms
                         (empty for lapped cars and non-finishers)
+    CircuitId           the track, e.g. "red_bull_ring" for both the Styrian
+                        and Austrian GPs (overtaking/DNF history is per circuit)
 
 Resumable: seasons already on disk are skipped (force=True re-downloads).
 """
@@ -59,11 +61,14 @@ def _float(value):
 
 def _row(year: int, race: dict, res: dict) -> dict:
     driver, team = res.get("Driver", {}), res.get("Constructor", {})
+    circuit = race.get("Circuit", {})
     return {
         "Year": year,
         "Round": _int(race.get("round")),
         "Event": race.get("raceName"),
         "Date": race.get("date"),
+        "CircuitId": circuit.get("circuitId"),
+        "CircuitName": circuit.get("circuitName"),
         "DriverNumber": res.get("number"),
         "Abbreviation": driver.get("code"),
         "DriverId": driver.get("driverId"),
