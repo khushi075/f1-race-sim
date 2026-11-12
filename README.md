@@ -171,7 +171,7 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 
-## Running locally (optional)
+## Running locally
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
