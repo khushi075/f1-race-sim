@@ -18,9 +18,12 @@ information available before the race starts:
     DriverForm, TeamForm     mean finishing rank in their last 5 finishes
     RacePaceGapPct           mean race-pace gap to teammate, last 5 dry races
     DriverDNFRate, TeamDNFRate   share of DNFs in the last 10 races
-    CircuitPosChange         mean |finish - grid| at this circuit in earlier
-                             editions (how much the order usually shuffles)
-    CircuitDNFRate           DNF rate at this circuit in earlier editions
+    CircuitPosChange         mean |finish - grid| in earlier races at this
+                             circuit (how much the order usually shuffles)
+    CircuitDNFRate           DNF rate in earlier races at this circuit
+Circuits are matched by Jolpica's CircuitId, so e.g. the Mexican and Mexico
+City GPs, or the Styrian and Austrian GPs, share one history. (Results without
+CircuitId fall back to event names.)
 "Recent" and circuit features look strictly at earlier races, so the 2025
 test season never sees its own results.
 
@@ -114,17 +117,20 @@ def build_dataset(results: pd.DataFrame, quali_gaps: pd.DataFrame,
     df = df.merge(team[["TeamId", "RaceIdx", "TeamForm", "TeamDNFRate"]],
                   on=["TeamId", "RaceIdx"], how="left")
 
-    # Circuit history: earlier editions of the same event; if none, the mean
-    # of all earlier races
+    # Circuit history: earlier races at the same circuit; if none, the mean
+    # of all earlier races. Matched by CircuitId (one track can host events
+    # with different names); event name only if CircuitId is missing.
+    has_circuit = "CircuitId" in df.columns and df["CircuitId"].notna().all()
+    key = "CircuitId" if has_circuit else "Event"
     df["PosChange"] = (df["FinishRank"] - df["GridRankFinishers"]).abs()
-    race = (df.groupby(["RaceIdx", "Event"])
+    race = (df.groupby(["RaceIdx", key])
               .agg(RacePosChange=("PosChange", "mean"), RaceDNF=("DNF", "mean"))
               .reset_index().sort_values("RaceIdx"))
     race["_all"] = 0
     for col, src in (("CircuitPosChange", "RacePosChange"), ("CircuitDNFRate", "RaceDNF")):
-        by_event = _prior_mean(race, "Event", src, None)
+        by_circuit = _prior_mean(race, key, src, None)
         overall = _prior_mean(race, "_all", src, None)
-        race[col] = by_event.fillna(overall)
+        race[col] = by_circuit.fillna(overall)
     df = df.merge(race[["RaceIdx", "CircuitPosChange", "CircuitDNFRate"]], on="RaceIdx", how="left")
     df["GridxCircuitPosChange"] = df["Grid"] * df["CircuitPosChange"]
 
