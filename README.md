@@ -16,6 +16,7 @@ The core ML problem is **separating driver skill from car performance**: drivers
 | Baseline model: DNF chance + finishing order | ✅ |
 | Hierarchical driver skill + car pace model (PyMC) | ✅ |
 | Monte Carlo race simulator (dry races) | ✅ |
+| Out-of-sample test of the simulator (2025) | ✅ |
 | Teammate-pairing search | Planned |
 
 ## Feature 1: teammate qualifying gaps
@@ -68,7 +69,7 @@ Teammates sharing a car separate skill from car pace, and drivers who change tea
 Simulates a dry race thousands of times for any field: drivers from any season they raced (2018–2025), in any team-season's car, at any circuit. Each simulation:
 
 1. Draws one sample from the driver/car model, so uncertainty about skill and cars carries into the results.
-2. **Qualifying:** skill + car pace at this circuit, plus qualifying noise, sets the grid.
+2. **Qualifying:** skill + car pace at this circuit, plus qualifying noise, sets the grid. Noise is heavy-tailed on the slow side only (crashes, traffic): with the model's symmetric tail, midfield cars took about 21 simulated poles in 152 dry races versus 0 in reality; now about 1.5.
 3. **Retirements:** each car retires at its team-season's dry-race DNF rate, adjusted for the circuit's DNF rate (both shrunk toward the average when data is thin).
 4. **Race:** from the grid, a car passes the car ahead only when it's faster by more than the circuit's **overtaking threshold**. Each circuit's threshold is calibrated so simulated position changes match its real dry races (shrunk toward the all-circuit average for circuits with few races).
 5. **Points:** 25-18-15-12-10-8-6-4-2-1.
@@ -76,6 +77,12 @@ Simulates a dry race thousands of times for any field: drivers from any season t
 Outputs: win, podium, points and DNF chances, a finishing-position probability table, and expected points per driver and team, with 90% intervals.
 
 **Limitations:** dry races only (no wet-weather skill estimate yet). For swapped entries (a driver in a car they never drove), results depend on the model's skill/car split, which teammate comparisons only partly pin down, so they're flagged. Overtaking is a single threshold per circuit, with no strategy, tyre or safety-car effects.
+
+## Out-of-sample test (2025)
+
+The simulator is tested on races its model never saw. At 2025 rounds 7, 13 and 19 the driver/car model is refitted on all data before that round, and drivers and cars are carried forward to the next block of races by the model's random walks. Overtaking thresholds are recalibrated on earlier races only. Each dry race in the block is then simulated from its real grid with the actual finishers, and drivers are ranked by mean simulated finish. That is the same task the baseline model was scored on (grid known, order among finishers predicted), so the simulator, grid order and the baseline models are compared on exactly the same drivers.
+
+**Weekend update.** The first version of this test showed the simulator ranking finishers worse than grid order: its pace was a forecast made 1–6 races earlier, while the grid reflects that weekend's real pace (in-sample, with pace known, it beat the grid clearly). So before each race the forecast is updated with that weekend's qualifying times, which are known before the race: a Gaussian (Kalman) update over pace and segment offsets, with ruined laps down-weighted using the model's Student-t noise, keeping teammates' shared-car correlation (`simulator.weekend_update`). Because 2025 had already been looked at when this was added, 2024 is used as a second, untouched test season. Nothing was tuned on test results. Rounds 1–6 aren't tested: the model starts each season's cars fresh and needs some data from the new season first.
 
 ## Project layout
 
@@ -89,6 +96,7 @@ f1sim/
   baseline.py   # pre-race features, DNF + position models, evaluation
   skill_model.py # hierarchical Bayesian driver skill + car pace model
   simulator.py  # Monte Carlo race simulator: qualifying, DNFs, overtaking, points
+  backtest.py   # out-of-sample test: checkpoint refits, forecasts, scoring
   manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
 manual_data/
@@ -102,6 +110,7 @@ notebooks/
   06_baseline_model.ipynb      # baseline DNF + position models vs benchmarks
   07_driver_car_model.ipynb    # driver skill + car pace model, charts
   08_race_simulator.ipynb      # simulate a race with any field
+  09_backtest_simulator.ipynb  # out-of-sample test vs grid order and the baseline
 ```
 
 Data is stored outside the repo (on Google Drive) and is never committed.
@@ -118,6 +127,7 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 8. Open `notebooks/06_baseline_model.ipynb` for the baseline model.
 9. Open `notebooks/07_driver_car_model.ipynb` for the driver skill + car pace model (about 20–25 minutes to fit on Colab's free CPU; afterwards, untick `FIT_NEW` to reload the saved fit).
 10. Open `notebooks/08_race_simulator.ipynb` to simulate races. It needs race results with circuit information (notebook 05; tick `FORCE` once if your results were downloaded before circuits were added).
+11. Open `notebooks/09_backtest_simulator.ipynb` for the out-of-sample test (three fits of about 20–25 minutes each; finished fits are saved and reused if Colab disconnects).
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 

@@ -83,16 +83,29 @@ def _cells(df: pd.DataFrame, keys: list[str], group: list[str]) -> pd.DataFrame:
     return cells
 
 
-def prepare_data(quali: pd.DataFrame, race_pace: pd.DataFrame, results: pd.DataFrame) -> ModelData:
-    """quali: load_quali(); race_pace: driver_race_pace(...)[0]; results: load_results()."""
+def prepare_data(quali: pd.DataFrame, race_pace: pd.DataFrame, results: pd.DataFrame,
+                 forecast: pd.DataFrame | None = None) -> ModelData:
+    """quali: load_quali(); race_pace: driver_race_pace(...)[0]; results: load_results().
+
+    forecast: optional entry lists of future races to predict (DriverId, TeamId,
+    Year, Round, Event), with no observations. Their skill and car cells are
+    added so the random walks carry drivers and cars forward from the latest
+    data: a driver's new season starts from their previous season, a team's
+    future races continue from its latest race that season (a season the team
+    has no data for yet starts from the prior), and a debutant gets the prior.
+    """
     q = _quali_observations(quali)
     r, unmatched = _race_observations(race_pace, results)
+    fc = (forecast[["DriverId", "TeamId", "Year", "Round", "Event"]].drop_duplicates()
+          if forecast is not None else pd.DataFrame(columns=["DriverId", "TeamId", "Year", "Round", "Event"]))
 
-    races = (pd.concat([q[["Year", "Round", "Event"]], r[["Year", "Round", "Event"]]])
+    races = (pd.concat([q[["Year", "Round", "Event"]], r[["Year", "Round", "Event"]], fc[["Year", "Round", "Event"]]])
              .drop_duplicates(["Year", "Round"]).sort_values(["Year", "Round"]).reset_index(drop=True))
     races["race"] = np.arange(len(races))
 
-    obs = pd.concat([q[["DriverId", "TeamId", "Year", "Round"]], r[["DriverId", "TeamId", "Year", "Round"]]])
+    obs = pd.concat([q[["DriverId", "TeamId", "Year", "Round"]], r[["DriverId", "TeamId", "Year", "Round"]],
+                     fc[["DriverId", "TeamId", "Year", "Round"]]])
+    obs[["Year", "Round"]] = obs[["Year", "Round"]].astype(int)
     skill_cells = _cells(obs, ["DriverId", "Year"], ["DriverId"])
     car_cells = _cells(obs, ["TeamId", "Year", "Round"], ["TeamId", "Year"])
     car_cells = car_cells.merge(races[["Year", "Round", "race"]], on=["Year", "Round"], how="left")
