@@ -5,8 +5,8 @@ For every observation of a driver's pace (in % of a lap; lower = faster):
     pace = segment/race offset + driver skill + car pace + noise
 
 Observations
-    Qualifying  every lap time a driver set in each segment (Q1, Q2, Q3), as %
-                behind that segment's fastest lap. Each segment of each event
+    Qualifying  each driver's best lap in each segment they took part in (Q1,
+                Q2, Q3), as % behind that segment's fastest lap. Each segment of each event
                 gets its own offset, so track evolution from Q1 to Q3 isn't
                 mistaken for pace.
     Race        each driver's race pace relative to the field, from the
@@ -161,7 +161,7 @@ def build_model(data: ModelData):
         car_c = pm.Deterministic(
             "car", car - pt.dot(M_race, car)[cc["race"].to_numpy()], dims="car_cell")
 
-        # Qualifying laps
+        # Qualifying: best lap per driver per segment
         alpha_q = pm.Normal("alpha_q", 1.0, 2.0, dims="qsession")
         sigma_q = pm.HalfNormal("sigma_q", 0.5)
         nu_q = pm.Gamma("nu_q", 2.0, 0.1)
