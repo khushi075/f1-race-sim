@@ -4,21 +4,6 @@ Simulate and predict Formula 1 races with current and past drivers, using custom
 
 The core ML problem is **separating driver skill from car performance**: drivers only race a few cars, and good drivers tend to end up in good cars. Teammate comparisons are the main evidence, since teammates share (nearly) the same car.
 
-## Status
-
-| Feature | Status |
-|---|---|
-| Qualifying data ingestion, 2018–2025 (FastF1) | ✅ |
-| Teammate qualifying-gap analysis | ✅ |
-| Race laps, weather and race control, 2018–2025 (TracingInsights) | ✅ |
-| Teammate race-pace model (dry races) | ✅ |
-| Race results 2018–2025 (Jolpica) | ✅ |
-| Baseline model: DNF chance + finishing order | ✅ |
-| Hierarchical driver skill + car pace model (PyMC) | ✅ |
-| Monte Carlo race simulator (dry races) | ✅ |
-| Out-of-sample test of the simulator (2025) | ✅ |
-| Teammate-pairing search | Planned |
-
 ## Results and conclusions
 
 All numbers come from the notebooks run on 2018–2025 data: 173 races, 152 of them dry. Test results are for 2025, using models that hadn't seen the races they predict.
@@ -74,13 +59,13 @@ The baseline numbers above were produced before circuit history was matched by c
 - Carry car pace over between seasons (a team's new car starting near its old one) to forecast early-season races.
 - A Streamlit app so others can run their own what-if races.
 
-## Feature 1: teammate qualifying gaps
+## 1: teammate qualifying gaps
 
 For each race, the two teammates are compared in the **last qualifying segment they both set a time in** (Q3 if both reached it, else Q2, else Q1). The gap is a % of the teammate's lap time, where negative means faster. Gaps over 2% (adjustable) are flagged as likely crashes or technical issues and excluded from season summaries.
 
 **Limitation:** teammates' cars are not identical (setups, upgrade timing, reliability), so this is an approximation.
 
-## Feature 2: teammate race pace
+## 2: teammate race pace
 
 Race pace is compared with a small lap-time model fitted separately for each race:
 
@@ -95,7 +80,7 @@ It adjusts each lap for tyre compound, tyre wear (each compound degrading at its
 
 **Limitations:** the fuel and track-evolution effect is assumed linear and the same for every car; drivers in different traffic or running different strategies may still differ in ways the model doesn't capture.
 
-## Feature 3: baseline race model
+## 3: baseline race model
 
 Two parts, matching how the race simulator will work:
 
@@ -106,7 +91,7 @@ Each is fitted as a linear model and a gradient-boosted tree model, trained on 2
 
 **Limitations:** team form carries over between seasons even when the car changes a lot, and restarts when a team rebrands.
 
-## Feature 4: driver skill + car pace (hierarchical Bayesian model)
+## 4: driver skill + car pace (hierarchical Bayesian model)
 
 Every observation of a driver's pace (% of a lap) is modelled as `session offset + driver skill + car pace + noise`, fitted with PyMC:
 
@@ -119,7 +104,7 @@ Teammates sharing a car separate skill from car pace, and drivers who change tea
 
 **Limitation:** skill is measured against teammates. An unusually weak teammate, or a car built around one driver, inflates that driver's skill and deflates the car (e.g. Red Bull 2023).
 
-## Feature 5: Monte Carlo race simulator
+## 5: Monte Carlo race simulator
 
 Simulates a dry race thousands of times for any field: drivers from any season they raced (2018–2025), in any team-season's car, at any circuit. Each simulation:
 
