@@ -4,7 +4,10 @@ Each simulated race:
 1. Draw one sample from the driver/car model's posterior (skill, car pace,
    noise levels), so uncertainty about skill and cars flows into the results.
 2. Qualifying: one-lap pace = driver skill + car pace at this circuit, plus
-   qualifying noise (heavy-tailed, as fitted). The order sets the grid.
+   qualifying noise. The order sets the grid. The noise is heavy-tailed on the
+   slow side only (crashes, traffic, yellow flags) and normal on the fast
+   side: real outliers are mostly slow, and a symmetric tail gave midfield
+   cars ~21 poles in 152 dry races versus 0 in reality (see _quali_noise).
 3. Retirements: each car retires with its team-season's DNF rate, adjusted for
    the circuit's DNF rate (both from dry races, shrunk toward the average when
    there's little data). Retired cars drop to the back.
@@ -166,6 +169,23 @@ def overtake(pace_in_grid_order: np.ndarray, threshold) -> np.ndarray:
 def _student_t(rng, nu: np.ndarray, sigma: np.ndarray, n: int) -> np.ndarray:
     """Student-t noise, one (nu, sigma) per simulation row."""
     return sigma[:, None] * rng.standard_t(nu[:, None], size=(len(nu), n))
+
+
+def _quali_noise(rng, nu: np.ndarray, sigma: np.ndarray, n: int) -> np.ndarray:
+    """Qualifying noise: the fitted Student-t on the slow side, normal (same
+    scale) on the fast side.
+
+    The model fits symmetric Student-t noise, which is right for estimation
+    (ruined laps can't drag skill estimates). But real qualifying outliers are
+    mostly slow: in 2018-2025, 348 best laps were >3 sigma slower than the
+    model expected and 123 were >3 sigma faster, with the worst slow one at
+    ~384 sigma and the worst fast one at ~30 sigma. Simulating the symmetric
+    tail invents impossibly fast laps: midfield teams got ~21 poles in 152 dry
+    races (real: 0). With this noise: ~1.5. Race noise stays symmetric,
+    since race-day chaos does give midfield cars podiums."""
+    t = rng.standard_t(nu[:, None], size=(len(nu), n))
+    z = np.abs(rng.standard_normal((len(nu), n)))
+    return sigma[:, None] * np.where(t > 0, t, -z)
 
 
 # ----------------------------------------------------------------------------
@@ -434,20 +454,88 @@ class SimResult:
         return pd.DataFrame(rows).sort_values("ExpPoints", ascending=False).round(2).reset_index(drop=True)
 
 
+def pace_draws(entries: pd.DataFrame, post: Posterior) -> np.ndarray:
+    """One-lap pace (skill + car at this circuit) per posterior draw: (draws, cars)."""
+    skill = post.skill[:, entries["_skill_cell"].to_numpy()]
+    car = np.column_stack([post.car[:, cells].mean(axis=1) for cells in entries["_car_cells"]])
+    return skill + car
+
+
+def weekend_update(entries: pd.DataFrame, post: Posterior, quali_race: pd.DataFrame,
+                   alpha_sd: float = 2.0, n_iter: int = 25) -> tuple[np.ndarray, dict]:
+    """Update each driver's one-lap pace with this weekend's qualifying times.
+
+    The model's pace draws for the field are the prior (mean m, covariance V,
+    which keeps teammates' shared-car correlation). Each qualifying time is a
+    measurement y = segment offset + pace + noise, as in the driver/car model.
+    The update is a Gaussian (Kalman) update over pace and segment offsets,
+    with Student-t noise handled by EM weights (ruined laps get little weight).
+    The draws are then mapped onto the updated distribution with a
+    square-root transform, so each draw keeps its own beta and noise levels.
+
+    quali_race: this race's rows of load_quali(). Drivers without a time keep
+    their prior. Returns (updated pace draws (draws, cars), info).
+    """
+    from f1sim.skill_model import _quali_observations
+
+    base = pace_draws(entries, post)
+    n = base.shape[1]
+    m = base.mean(axis=0)
+    V = np.cov(base, rowvar=False) + 1e-8 * np.eye(n)
+
+    obs = _quali_observations(quali_race)
+    pos = {d: i for i, d in enumerate(entries["DriverId"])}
+    obs = obs[obs["DriverId"].isin(pos)]
+    if obs.empty:
+        return base, {"QualiTimes": 0, "DownWeighted": 0}
+    segs = sorted(obs["Segment"].unique())
+    S, J = len(segs), len(obs)
+    H = np.zeros((J, n + S))
+    H[np.arange(J), obs["DriverId"].map(pos).to_numpy()] = 1.0
+    H[np.arange(J), n + obs["Segment"].map({s: k for k, s in enumerate(segs)}).to_numpy()] = 1.0
+    y = obs["y"].to_numpy()
+
+    a0 = [float(np.mean(y[obs["Segment"].to_numpy() == s] - m[obs.loc[obs["Segment"] == s, "DriverId"].map(pos)]))
+          for s in segs]
+    theta0 = np.concatenate([m, a0])
+    P0inv = np.zeros((n + S, n + S))
+    P0inv[:n, :n] = np.linalg.inv(V)
+    P0inv[n:, n:] = np.eye(S) / alpha_sd ** 2
+    sigma, nu = float(post.sigma_q.mean()), float(post.nu_q.mean())
+
+    w = np.ones(J)
+    for _ in range(n_iter):
+        Rinv = w / sigma ** 2
+        P = np.linalg.inv(P0inv + H.T @ (Rinv[:, None] * H))
+        theta = P @ (P0inv @ theta0 + H.T @ (Rinv * y))
+        r2 = (y - H @ theta) ** 2 + np.einsum("ij,jk,ik->i", H, P, H)
+        w = (nu + 1) / (nu + r2 / sigma ** 2)
+
+    m1, V1 = theta[:n], P[:n, :n] + 1e-10 * np.eye(n)
+    A = np.linalg.cholesky(V1) @ np.linalg.inv(np.linalg.cholesky(V))
+    updated = m1 + (base - m) @ A.T
+    return updated, {"QualiTimes": J, "DownWeighted": int((w < 0.5).sum())}
+
+
 def simulate(entries: pd.DataFrame, post: Posterior, circuit: str, threshold: float,
-             dnf: DNFRates | None, n_sims: int = 5000, seed: int = 0) -> SimResult:
+             dnf: DNFRates | None, n_sims: int = 5000, seed: int = 0,
+             fixed_grid: bool = False, pace: np.ndarray | None = None) -> SimResult:
     """Simulate a race for a described field (describe_field) at a circuit.
-    dnf=None: nobody retires."""
+    dnf=None: nobody retires. fixed_grid=True: skip qualifying and start the
+    race with the entries in their given row order (row 0 on pole).
+    pace: optional one-lap pace per posterior draw (draws, cars), e.g. from
+    weekend_update; default skill + car from the model."""
     rng = np.random.default_rng(seed)
     n = len(entries)
     d = rng.integers(post.n_draws, size=n_sims)
 
-    skill = post.skill[d][:, entries["_skill_cell"].to_numpy()]
-    car = np.column_stack([post.car[d][:, cells].mean(axis=1) for cells in entries["_car_cells"]])
-    base = skill + car                                                   # one-lap pace, % of lap
+    base = (pace if pace is not None else pace_draws(entries, post))[d]   # one-lap pace, % of lap
 
-    quali = base + _student_t(rng, post.nu_q[d], post.sigma_q[d], n)
-    grid_slots = np.argsort(quali, axis=1)                               # car in each grid slot
+    if fixed_grid:
+        grid_slots = np.tile(np.arange(n), (n_sims, 1))
+    else:
+        quali = base + _quali_noise(rng, post.nu_q[d], post.sigma_q[d], n)
+        grid_slots = np.argsort(quali, axis=1)                           # car in each grid slot
     grid_pos = np.argsort(grid_slots, axis=1) + 1                        # grid position per car
 
     race = post.beta[d][:, None] * base + _student_t(rng, post.nu_race[d], post.sigma_race[d], n)
