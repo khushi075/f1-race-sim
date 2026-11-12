@@ -14,7 +14,7 @@ The core ML problem is **separating driver skill from car performance**: drivers
 | Teammate race-pace model (dry races) | ✅ |
 | Race results 2018–2025 (Jolpica) | ✅ |
 | Baseline model: DNF chance + finishing order | ✅ |
-| Hierarchical driver + car model | Planned |
+| Hierarchical driver skill + car pace model (PyMC) | ✅ |
 | Monte Carlo race simulator | Planned |
 | Teammate-pairing search | Planned |
 
@@ -50,6 +50,19 @@ Each is fitted as a linear model and a gradient-boosted tree model, trained on 2
 
 **Limitations:** team form carries over between seasons even when the car changes a lot, and restarts when a team rebrands.
 
+## Feature 4: driver skill + car pace (hierarchical Bayesian model)
+
+Every observation of a driver's pace (% of a lap) is modelled as `session offset + driver skill + car pace + noise`, fitted with PyMC:
+
+- **Observations:** every qualifying lap in Q1/Q2/Q3 (as % behind that segment's fastest, with an offset per segment for track evolution), and each driver's race pace relative to the field from the per-race lap model, with its standard error added to the noise. A scale factor lets race gaps differ in size from one-lap gaps.
+- **Driver skill:** one value per driver per season, drifting season to season (random walk), centred on each season's average driver.
+- **Car pace:** one value per team per race, evolving race to race within a season (upgrades), centred on each race's average car.
+- **Noise:** Student-t, separate for qualifying and race, so crashes or ruined laps don't drag estimates.
+
+Teammates sharing a car separate skill from car pace, and drivers who change teams link the grid together. Every estimate comes with a 90% interval. The fitted posterior is saved to Drive for the race simulator.
+
+**Limitation:** skill is measured against teammates. An unusually weak teammate, or a car built around one driver, inflates that driver's skill and deflates the car (e.g. Red Bull 2023).
+
 ## Project layout
 
 ```
@@ -60,6 +73,7 @@ f1sim/
   race_pace.py  # clean laps, wet races, per-race lap-time model, teammate gaps
   ingest_results.py # race results (finishing order, grid, status, points) from Jolpica
   baseline.py   # pre-race features, DNF + position models, evaluation
+  skill_model.py # hierarchical Bayesian driver skill + car pace model
   manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
 manual_data/
@@ -71,6 +85,7 @@ notebooks/
   04_teammate_race_pace.ipynb  # race-pace model, charts, quali vs race
   05_ingest_race_results.ipynb # download race results, cross-check with lap data
   06_baseline_model.ipynb      # baseline DNF + position models vs benchmarks
+  07_driver_car_model.ipynb    # driver skill + car pace model, charts
 ```
 
 Data is stored outside the repo (on Google Drive) and is never committed.
@@ -85,6 +100,7 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 6. Open `notebooks/04_teammate_race_pace.ipynb` for the race-pace analysis.
 7. Run `notebooks/05_ingest_race_results.ipynb` to download race results (one run).
 8. Open `notebooks/06_baseline_model.ipynb` for the baseline model.
+9. Open `notebooks/07_driver_car_model.ipynb` for the driver skill + car pace model (about 6 minutes to fit).
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 
