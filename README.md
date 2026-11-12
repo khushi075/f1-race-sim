@@ -15,7 +15,7 @@ The core ML problem is **separating driver skill from car performance**: drivers
 | Race results 2018–2025 (Jolpica) | ✅ |
 | Baseline model: DNF chance + finishing order | ✅ |
 | Hierarchical driver skill + car pace model (PyMC) | ✅ |
-| Monte Carlo race simulator | Planned |
+| Monte Carlo race simulator (dry races) | ✅ |
 | Teammate-pairing search | Planned |
 
 ## Feature 1: teammate qualifying gaps
@@ -54,7 +54,7 @@ Each is fitted as a linear model and a gradient-boosted tree model, trained on 2
 
 Every observation of a driver's pace (% of a lap) is modelled as `session offset + driver skill + car pace + noise`, fitted with PyMC:
 
-- **Observations:** every qualifying lap in Q1/Q2/Q3 (as % behind that segment's fastest, with an offset per segment for track evolution), and each driver's race pace relative to the field from the per-race lap model, with its standard error added to the noise. A scale factor lets race gaps differ in size from one-lap gaps.
+- **Observations:** each driver's best lap in each qualifying segment they took part in (Q1/Q2/Q3, as % behind that segment's fastest, with an offset per segment for track evolution), and each driver's race pace relative to the field from the per-race lap model, with its standard error added to the noise. A scale factor lets race gaps differ in size from one-lap gaps.
 - **Driver skill:** one value per driver per season, drifting season to season (random walk), centred on each season's average driver.
 - **Car pace:** one value per team per race, evolving race to race within a season (upgrades), centred on each race's average car.
 - **Noise:** Student-t, separate for qualifying and race, so crashes or ruined laps don't drag estimates.
@@ -62,6 +62,20 @@ Every observation of a driver's pace (% of a lap) is modelled as `session offset
 Teammates sharing a car separate skill from car pace, and drivers who change teams link the grid together. Every estimate comes with a 90% interval. The fitted posterior is saved to Drive for the race simulator.
 
 **Limitation:** skill is measured against teammates. An unusually weak teammate, or a car built around one driver, inflates that driver's skill and deflates the car (e.g. Red Bull 2023).
+
+## Feature 5: Monte Carlo race simulator
+
+Simulates a dry race thousands of times for any field: drivers from any season they raced (2018–2025), in any team-season's car, at any circuit. Each simulation:
+
+1. Draws one sample from the driver/car model, so uncertainty about skill and cars carries into the results.
+2. **Qualifying:** skill + car pace at this circuit, plus qualifying noise, sets the grid.
+3. **Retirements:** each car retires at its team-season's dry-race DNF rate, adjusted for the circuit's DNF rate (both shrunk toward the average when data is thin).
+4. **Race:** from the grid, a car passes the car ahead only when it's faster by more than the circuit's **overtaking threshold**. Each circuit's threshold is calibrated so simulated position changes match its real dry races (shrunk toward the all-circuit average for circuits with few races).
+5. **Points:** 25-18-15-12-10-8-6-4-2-1.
+
+Outputs: win, podium, points and DNF chances, a finishing-position probability table, and expected points per driver and team, with 90% intervals.
+
+**Limitations:** dry races only (no wet-weather skill estimate yet). For swapped entries (a driver in a car they never drove), results depend on the model's skill/car split, which teammate comparisons only partly pin down, so they're flagged. Overtaking is a single threshold per circuit, with no strategy, tyre or safety-car effects.
 
 ## Project layout
 
@@ -74,6 +88,7 @@ f1sim/
   ingest_results.py # race results (finishing order, grid, status, points) from Jolpica
   baseline.py   # pre-race features, DNF + position models, evaluation
   skill_model.py # hierarchical Bayesian driver skill + car pace model
+  simulator.py  # Monte Carlo race simulator: qualifying, DNFs, overtaking, points
   manual.py     # loads hand-entered times for sessions no API covers
   features.py   # teammate gap calculations
 manual_data/
@@ -86,6 +101,7 @@ notebooks/
   05_ingest_race_results.ipynb # download race results, cross-check with lap data
   06_baseline_model.ipynb      # baseline DNF + position models vs benchmarks
   07_driver_car_model.ipynb    # driver skill + car pace model, charts
+  08_race_simulator.ipynb      # simulate a race with any field
 ```
 
 Data is stored outside the repo (on Google Drive) and is never committed.
@@ -100,7 +116,8 @@ Data is stored outside the repo (on Google Drive) and is never committed.
 6. Open `notebooks/04_teammate_race_pace.ipynb` for the race-pace analysis.
 7. Run `notebooks/05_ingest_race_results.ipynb` to download race results (one run).
 8. Open `notebooks/06_baseline_model.ipynb` for the baseline model.
-9. Open `notebooks/07_driver_car_model.ipynb` for the driver skill + car pace model (about 6 minutes to fit).
+9. Open `notebooks/07_driver_car_model.ipynb` for the driver skill + car pace model (about 20–25 minutes to fit on Colab's free CPU; afterwards, untick `FIT_NEW` to reload the saved fit).
+10. Open `notebooks/08_race_simulator.ipynb` to simulate races. It needs race results with circuit information (notebook 05; tick `FORCE` once if your results were downloaded before circuits were added).
 
 If the repo is private, cloning in Colab needs a GitHub token. Keeping it public is simpler, and it's a portfolio project anyway.
 
@@ -115,7 +132,7 @@ python -m f1sim.ingest --start 2018 --end 2025 --data-dir ./data_store
 ## Data sources
 
 - [FastF1](https://docs.fastf1.dev): F1 live timing data and the Jolpica-F1 API (successor to Ergast). Qualifying times come from Jolpica.
-- [Jolpica-F1](https://github.com/jolpica/jolpica-f1) API, directly: race results (finishing order, grid, status, points).
+- [Jolpica-F1](https://github.com/jolpica/jolpica-f1) API, directly: race results (finishing order, grid, status, points, circuit).
 - [TracingInsights](https://github.com/TracingInsights): race laps, weather and race control messages, from their public per-season repos (e.g. `TracingInsights/2025`), licensed [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0). The data is FastF1-derived. Every row stores the git commit it came from (`SourceCommit`).
 - `manual_data/quali_times.csv`: qualifying times copied from the official [formula1.com](https://www.formula1.com) results, for sessions where no API has times. Driver and team identity still comes from FastF1; rows are matched by car number, and ingestion fails loudly if the drivers don't match.
 
