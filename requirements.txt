@@ -1,4 +1,4 @@
-# Colab already has pandas, pyarrow, plotly, statsmodels, scikit-learn and scipy; this list is for running elsewhere too.
+# Colab already has most of these; notebook 07 installs PyMC/h5netcdf if missing. This list is for running elsewhere too.
 fastf1>=3.9,<4
 pandas>=2.1,<3
 pyarrow>=15
@@ -6,3 +6,7 @@ plotly>=5.22
 statsmodels>=0.14
 scikit-learn>=1.3
 scipy>=1.11
+pymc>=5.10
+arviz>=0.17
+h5netcdf>=1.3
+h5py>=3.10

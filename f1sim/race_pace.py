@@ -231,3 +231,72 @@ def race_season_summary(gaps: pd.DataFrame) -> pd.DataFrame:
     )
     s["H2H"] = s["PaceWins"].astype(str) + "-" + (s["Races"] - s["PaceWins"]).astype(str)
     return s.sort_values(["Year", "MedianGapPct"]).round({"MedianGapPct": 3, "MedianGapSec": 3}).reset_index(drop=True)
+
+
+def race_driver_pace(race: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
+                     robust: bool = True) -> tuple[pd.DataFrame, list[tuple[str, str]]]:
+    """Every driver's race pace relative to the race's average driver.
+
+    Same per-race model and data rules as race_teammate_gaps. Each driver's
+    coefficient is centred on the mean of all drivers in the race, and its
+    standard error comes from the full covariance of that contrast.
+    PacePct > 0 means slower than the average driver in that race.
+    """
+    race, notes = _prepare(race, min_laps)
+    if race["drv"].nunique() < 2:
+        return pd.DataFrame(), notes
+    _check_identifiable(race)
+
+    counts = race["drv"].value_counts()
+    res = _fit(race, robust)
+    params, cov = res.params, res.cov_params()
+    ref_lap = race["time"].median()
+    year, rnd, event = race[["Year", "Round", "Event"]].iloc[0]
+
+    drivers = sorted(race["drv"].unique())
+    # A maps parameters -> each driver's effect (baseline driver = 0)
+    A = pd.DataFrame(0.0, index=drivers, columns=params.index)
+    for d in drivers:
+        term = _driver_term(params.index, d)
+        if term:
+            A.loc[d, term] = 1.0
+    centred = A - A.mean(axis=0)             # effect minus the race average
+    effects = centred.values @ params.values
+    covs = centred.values @ cov.values @ centred.values.T
+    team = race.groupby("drv")["team"].first()
+
+    rows = [{
+        "Year": year, "Round": rnd, "Event": event, "Driver": d, "Team": team[d],
+        "PaceSec": float(effects[i]), "PaceSESec": float(np.sqrt(covs[i, i])),
+        "PacePct": float(100 * effects[i] / ref_lap),
+        "PaceSEPct": float(100 * np.sqrt(covs[i, i]) / ref_lap),
+        "Laps": int(counts[d]),
+    } for i, d in enumerate(drivers)]
+    return pd.DataFrame(rows), notes
+
+
+def driver_race_pace(clean: pd.DataFrame, min_laps: int = DEFAULT_MIN_LAPS,
+                     robust: bool = True,
+                     expected_races: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """race_driver_pace for every race. Returns (pace, skipped) like teammate_race_gaps."""
+    out, skipped = [], []
+    if expected_races is not None:
+        present = set(map(tuple, clean[["Year", "Round"]].drop_duplicates().values))
+        for year, rnd, event in expected_races[["Year", "Round", "Event"]].itertuples(index=False):
+            if (year, rnd) not in present:
+                skipped.append((year, rnd, event, None, "no clean dry laps (e.g. whole race behind the safety car)"))
+    for (year, rnd, event), race in clean.groupby(["Year", "Round", "Event"]):
+        try:
+            pace, notes = race_driver_pace(race, min_laps, robust)
+        except Exception as exc:
+            skipped.append((year, rnd, event, None, f"{type(exc).__name__}: {exc}"))
+            continue
+        skipped.extend((year, rnd, event, drv, note) for drv, note in notes)
+        if pace.empty:
+            skipped.append((year, rnd, event, None, "fewer than 2 drivers with enough clean laps"))
+        else:
+            out.append(pace)
+    pace = pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+    skipped = (pd.DataFrame(skipped, columns=["Year", "Round", "Event", "Driver", "Reason"])
+               .sort_values(["Year", "Round"]).reset_index(drop=True))
+    return pace.sort_values(["Year", "Round", "PacePct"]).reset_index(drop=True), skipped
